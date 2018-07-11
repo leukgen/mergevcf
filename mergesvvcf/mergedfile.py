@@ -1,5 +1,6 @@
 from __future__ import print_function
 import os
+import operator
 import pysam
 import mergesvvcf.variantdict as variantdict
 
@@ -24,23 +25,39 @@ def int_if_possible(val):
         i = val
     return i
 
-def make_info_dict(records, pos1, pos2):
+def make_info_dict(callers, records, pos1, pos2):
     """ generate 'median' results for info fields from all records """
-    fields = ['CHR2', 'END', 'SVTYPE', 'SVLEN']
+    callermap = {
+        "delly": {"fields": ["DV", "RV"], "tumor": 0},
+        "svaba": {"fields": ["SR", "DR"], "tumor": 1},
+        "gridss": {"fields": ["RP", "SR"], "tumor": 1},
+        "brass": {"fields": ["PS", "RC"], "tumor": 1},
+        "smoove": {"fields": ["SR", "PE"], "tumor": 0},
+    }
+    # fields = ['CHR2', 'END', 'SVTYPE', 'SVLEN'] + ["SR", "DR"] + ["DV", "RV"] + ["RP"]
+    fields = [x["fields"] for x in callermap.values()]
+    fields = [item for sublist in fields for item in sublist]
     info = {}
     for field in fields:
         answers = []
-        for record in records:
-            if field in record.info:
-                answers.append(int_if_possible(record.info[field]))
-        nanswers = len(answers)
+        for caller, record in zip(callers, records):
+            if caller in callermap.keys() and field in callermap[caller]["fields"]:
+                if field in record.format:
+                    answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
+                elif field in record.info:
+                    answers.append([caller,int_if_possible(record.info[field])])
+                # elif field in record.format:
+                #     answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
+            nanswers = len(answers)
         if nanswers > 0:
-            sorted_answers = sorted(answers)
-            # doesn't quite deal with even #s correctly - can't average strings
-            median_pos = int(nanswers / 2)
-            median_answer = sorted_answers[median_pos]
-            if not median_answer == 0:
-                info[field] = median_answer
+            # sorted_answers = sorted(answers)
+            # # doesn't quite deal with even #s correctly - can't average strings
+            # median_pos = int(nanswers / 2)
+            # median_answer = sorted_answers[median_pos]
+            # if not median_answer == 0:
+            #     info[field] = median_answer
+            for a in answers:
+                info[a[0] + "_" + field] = a[1]
 
     if 'SVTYPE' in info and info['SVTYPE'] in ['DUP', 'DUP:TANDEM', 'DEL', 'INV']:
         if not 'SVLEN' in info:
@@ -106,13 +123,15 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
         the list of callers.
         """
         info = {}
-        fields = ['SVTYPE', 'SVLEN']
-        for field in fields:
+        # fields = ['SVTYPE', 'SVLEN']
+        # fields = ["svaba_SR", "svaba_DR"] + ["delly_DV", "delly_RV"] + ["gridss_RP", "gridss_SR"]
+        # for field in fields:
+        for field in infodict.keys():
             if field in infodict:
                 res = infodict[field]
                 if type(res) is list:
                     res = res[0]
-                info[field] = str(res)
+                info[field] = res
         if output_ncallers:
             info["NumCallers"] = int(len(set(callers)))
         info["Callers"] = ",".join(list(set(callers)))
@@ -166,12 +185,26 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
     if output_ncallers:
         outvcf.header.info.add("NumCallers", 1, "Integer", "Number of callers that made this call")
 
+    outvcf.header.info.add("CHR2", "1", "String", "Chromosome for END coordinate in case of a translocation")
+    outvcf.header.info.add("END", "1", "Integer", "End position of the structural variant")
+
     outvcf.header.info.add("SVTYPE", "1", "String", "Type of structural variant")
     outvcf.header.info.add("SVLEN", "1", "String", "Length of structural variant")
 
+    outvcf.header.info.add("brass_PS", "1", "Integer", "Count of pairs that span this breakpoint")
+    outvcf.header.info.add("brass_RC", "1", "Integer", "Count of countributing reads")
+    outvcf.header.info.add("delly_DV", "1", "Integer", "# high-quality variant pairs")
+    outvcf.header.info.add("delly_RV", "1", "Integer", "# high-quality variant junction reads")
+    outvcf.header.info.add("gridss_RP", "1", "Integer", "Count of read pairs supporting breakpoint")
+    outvcf.header.info.add("gridss_SR", "1", "Integer", "Count of split reads supporting breakpoint")
+    outvcf.header.info.add("smoove_PE", "1", "Integer", "Number of paired-end reads supporting the variant")
+    outvcf.header.info.add("smoove_SR", "1", "Integer", "Number of split reads supporting the variant")
+    outvcf.header.info.add("svaba_DR", "1", "Integer", "Number of discordant-supported reads for this variant")
+    outvcf.header.info.add("svaba_SR", "1", "Integer", "Number of spanning reads for this variants")
+
     print(outvcf.header, end="", file=outfile)
 
-    for variant in sorted(calldict):
+    for variant in sorted(calldict, key=operator.itemgetter(0)):
         callers = variant[2]
         num_callers = len(set(callers))
         passes = num_callers >= min_num_callers
@@ -210,8 +243,10 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
             vcfrec.ref = ref
             vcfrec.alts = [alt]
             vcfrec.filter.add(filterstring)
-            for key, val in sorted(infoString(callers, make_info_dict(records, medianPos1, medianPos2)).items()):
+            for key, val in sorted(infoString(callers, make_info_dict(callers, records, medianPos1, medianPos2)).items()):
                 vcfrec.info.__setitem__(key, val)
+            vcfrec.info.__setitem__("CHR2", avgloc2.chrom)
+            vcfrec.stop = avgloc2.pos
             svtype = getSVTYPE(avgloc1.chrom, avgloc2.chrom, extend1, extend2)
             vcfrec.info.__setitem__("SVTYPE", svtype)
             if avgloc1.chrom == avgloc2.chrom:
