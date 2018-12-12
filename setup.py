@@ -52,7 +52,7 @@ setup(
 
     packages=find_packages(exclude=['contrib', 'docs', 'tests*']),
 
-    install_requires=['pysam'],
+    install_requires=['pysam','Cython'],
 
     test_suite='tests',
 

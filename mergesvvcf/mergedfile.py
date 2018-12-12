@@ -1,4 +1,5 @@
 from __future__ import print_function
+import pyximport; pyximport.install()
 import os
 import operator
 import pysam

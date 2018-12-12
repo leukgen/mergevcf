@@ -130,6 +130,7 @@ class locationdict(dict):
             if super(locationdict, self).__contains__(locn+off):
                 present = True
                 foundoff = off
+                break
         return present, foundoff
 
     def __contains__(self, locn):
