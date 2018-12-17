@@ -26,39 +26,39 @@ def int_if_possible(val):
         i = val
     return i
 
-def make_info_dict(callers, records, pos1, pos2):
-    """ generate 'median' results for info fields from all records """
-    callermap = {
-        "delly": {"fields": ["DV", "RV"], "tumor": 0},
-        "svaba": {"fields": ["SR", "DR"], "tumor": 1},
-        "gridss": {"fields": ["RP", "SR"], "tumor": 1},
-        "brass": {"fields": ["PS", "RC"], "tumor": 1},
-        "smoove": {"fields": ["SR", "PE"], "tumor": 0},
-    }
-    # fields = ['CHR2', 'END', 'SVTYPE', 'SVLEN'] + ["SR", "DR"] + ["DV", "RV"] + ["RP"]
-    fields = [x["fields"] for x in callermap.values()]
-    fields = [item for sublist in fields for item in sublist]
-    info = {}
-    for field in fields:
-        answers = []
-        for caller, record in zip(callers, records):
-            if caller in callermap.keys() and field in callermap[caller]["fields"]:
-                if field in record.format:
-                    answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
-                elif field in record.info:
-                    answers.append([caller,int_if_possible(record.info[field])])
-                # elif field in record.format:
-                #     answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
-            nanswers = len(answers)
-        if nanswers > 0:
-            # sorted_answers = sorted(answers)
-            # # doesn't quite deal with even #s correctly - can't average strings
-            # median_pos = int(nanswers / 2)
-            # median_answer = sorted_answers[median_pos]
-            # if not median_answer == 0:
-            #     info[field] = median_answer
-            for a in answers:
-                info[a[0] + "_" + field] = a[1]
+# def make_info_dict(callers, records, pos1, pos2):
+#     """ generate 'median' results for info fields from all records """
+#     callermap = {
+#         "delly": {"fields": ["DV", "RV"], "tumor": 0},
+#         "svaba": {"fields": ["SR", "DR"], "tumor": 1},
+#         "gridss": {"fields": ["RP", "SR"], "tumor": 1},
+#         "brass": {"fields": ["PS", "RC"], "tumor": 1},
+#         "smoove": {"fields": ["SR", "PE"], "tumor": 0},
+#     }
+#     # fields = ['CHR2', 'END', 'SVTYPE', 'SVLEN'] + ["SR", "DR"] + ["DV", "RV"] + ["RP"]
+#     fields = [x["fields"] for x in callermap.values()]
+#     fields = [item for sublist in fields for item in sublist]
+#     info = {}
+#     for field in fields:
+#         answers = []
+#         for caller, record in zip(callers, records):
+#             if caller in callermap.keys() and field in callermap[caller]["fields"]:
+#                 if field in record.format:
+#                     answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
+#                 elif field in record.info:
+#                     answers.append([caller,int_if_possible(record.info[field])])
+#                 # elif field in record.format:
+#                 #     answers.append([caller,int_if_possible(record.samples[callermap[caller]["tumor"]][field])])
+#             nanswers = len(answers)
+#         if nanswers > 0:
+#             # sorted_answers = sorted(answers)
+#             # # doesn't quite deal with even #s correctly - can't average strings
+#             # median_pos = int(nanswers / 2)
+#             # median_answer = sorted_answers[median_pos]
+#             # if not median_answer == 0:
+#             #     info[field] = median_answer
+#             for a in answers:
+#                 info[a[0] + "_" + field] = a[1]
 
     if 'SVTYPE' in info and info['SVTYPE'] in ['DUP', 'DUP:TANDEM', 'DEL', 'INV']:
         if not 'SVLEN' in info:
@@ -118,25 +118,30 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
         """Did this variant pass?"""
         return "PASS" in list(record.filter) or len(list(record.filter)) == 0 or noFilter
 
-    def infoString(callers, infodict):
-        """
-        Generate an INFO string from the INFO dictionary plus
-        the list of callers.
-        """
-        info = {}
-        # fields = ['SVTYPE', 'SVLEN']
-        # fields = ["svaba_SR", "svaba_DR"] + ["delly_DV", "delly_RV"] + ["gridss_RP", "gridss_SR"]
-        # for field in fields:
-        for field in infodict.keys():
-            if field in infodict:
-                res = infodict[field]
-                if type(res) is list:
-                    res = res[0]
-                info[field] = res
-        if output_ncallers:
-            info["NumCallers"] = int(len(set(callers)))
-        info["Callers"] = ",".join(list(set(callers)))
-        return info
+    # def infoString(callers, infodict):
+    #     """
+    #     Generate an INFO string from the INFO dictionary plus
+    #     the list of callers.
+    #     """
+    #     info = {}
+    #     # fields = ['SVTYPE', 'SVLEN']
+    #     # fields = ["svaba_SR", "svaba_DR"] + ["delly_DV", "delly_RV"] + ["gridss_RP", "gridss_SR"]
+    #     # for field in fields:
+    #     for field in infodict.keys():
+    #         if field in infodict:
+    #             res = infodict[field]
+    #             if type(res) is list:
+    #                 res = res[0]
+    #             info[field] = res
+    #     if output_ncallers:
+    #         info["NumCallers"] = int(len(set(callers)))
+    #     info["Callers"] = ",".join(list(set(callers)))
+    #     return info
+
+    samplemap = {} # the samples in each file
+    infomap = {} # the info fields in each file
+    formatmap = {} # the format fields in each file
+    outsamples = set() # standardized samples
 
     calldict = variantdict.variantmap(awindow=0, svwindow=slop)
     for (infile, program) in zip(filenames, programs):
@@ -144,11 +149,52 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
         try:
             vcf_reader = pysam.VariantFile(infile)
 
+            # Add contigs from all files
             for contig in sorted(vcf_reader.header.contigs):
                 try:
                     outvcf.header.contigs.add(contig)
                 except ValueError:
                     pass
+
+            outvcf.header.add_meta(
+                key="Caller",
+                items=[
+                    ("ID", program),
+                    ("File", infile)
+                    ]
+            )
+
+            # Add filters from all files
+            for hfilter in vcf_reader.header.filters.itervalues():
+                if hfilter.name not in ["PASS","LOWSUPPORT"]:
+                    outvcf.header.filters.add("{}_{}".format(program,hfilter.name),None,None,hfilter.description)
+            # Add info fields from all files
+            infos = []
+            for info in vcf_reader.header.info.itervalues():
+                if info.name not in ["SVTYPE","SVLEN","END","CHR2","NumCallers"]:
+                    outvcf.header.info.add("{}_{}".format(program,info.name),info.number,info.type,info.description)
+                    infos.append(info.name)
+            infomap[program] = infos
+            # Add format fields from all files
+            formats = []
+            for hformat in vcf_reader.header.formats.itervalues():
+                num = None
+                if hformat.name == "GT":
+                    num = "G"
+                    continue # Genotype is special cant do multiple
+                outvcf.header.formats.add("{}_{}".format(program,hformat.name),num or hformat.number,hformat.type,hformat.description)
+                formats.append(hformat.name)
+            formatmap[program] = formats
+            # Collect samples all files
+            samples = {}
+            for meta in vcf_reader.header.records:
+                if meta.key == "SAMPLE" and "SampleName" in meta.keys():
+                    samples[meta["ID"]] = meta["SampleName"]
+            if not samples:
+                for samp in vcf_reader.header.samples:
+                    samples[samp] = samp.rsplit("/")[-1].replace(".bam","")
+            samplemap[program] = samples
+            outsamples.update(samples.values())
 
             for record in vcf_reader.fetch():
 
@@ -172,13 +218,9 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
             else:
                 pass
 
-        outvcf.header.add_meta(
-            key="caller",
-            items=[
-                ("ID", program),
-                ("File", infile)
-                ]
-        )
+    # Add samples
+    for samp in sorted(outsamples):
+        outvcf.header.samples.add(samp)
 
     # Write the results in a master vcf file for the sample
     outvcf.header.info.add("Callers", ".", "String", "Callers that made this call")
@@ -188,20 +230,8 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
 
     outvcf.header.info.add("CHR2", "1", "String", "Chromosome for END coordinate in case of a translocation")
     outvcf.header.info.add("END", "1", "Integer", "End position of the structural variant")
-
     outvcf.header.info.add("SVTYPE", "1", "String", "Type of structural variant")
     outvcf.header.info.add("SVLEN", "1", "String", "Length of structural variant")
-
-    outvcf.header.info.add("brass_PS", "1", "Integer", "Count of pairs that span this breakpoint")
-    outvcf.header.info.add("brass_RC", "1", "Integer", "Count of countributing reads")
-    outvcf.header.info.add("delly_DV", "1", "Integer", "# high-quality variant pairs")
-    outvcf.header.info.add("delly_RV", "1", "Integer", "# high-quality variant junction reads")
-    outvcf.header.info.add("gridss_RP", "1", "Integer", "Count of read pairs supporting breakpoint")
-    outvcf.header.info.add("gridss_SR", "1", "Integer", "Count of split reads supporting breakpoint")
-    outvcf.header.info.add("smoove_PE", "1", "Integer", "Number of paired-end reads supporting the variant")
-    outvcf.header.info.add("smoove_SR", "1", "Integer", "Number of split reads supporting the variant")
-    outvcf.header.info.add("svaba_DR", "1", "Integer", "Number of discordant-supported reads for this variant")
-    outvcf.header.info.add("svaba_SR", "1", "Integer", "Number of spanning reads for this variants")
 
     print(outvcf.header, end="", file=outfile)
 
@@ -223,7 +253,7 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
             vcfrec.ref = allele[0]
             vcfrec.alts = [allele[1]]
             vcfrec.filter.add(filterstring)
-            vcfrec.info.__setitem__("Callers", ",".join(callers))
+            vcfrec.info.__setitem__("Callers", ",".join(list(set(callers))))
             if output_ncallers:
                 vcfrec.info.__setitem__("NumCallers", str(len(set(callers))))
             print(vcfrec, end="", file=outfile)
@@ -244,14 +274,39 @@ def merge(filenames, programs, forceSV, outfile, slop=0, verbose=True,
             vcfrec.ref = ref
             vcfrec.alts = [alt]
             vcfrec.filter.add(filterstring)
-            for key, val in sorted(infoString(callers, make_info_dict(callers, records, medianPos1, medianPos2)).items()):
-                vcfrec.info.__setitem__(key, val)
+            # for key, val in sorted(infoString(callers, make_info_dict(callers, records, medianPos1, medianPos2)).items()):
+            #     vcfrec.info.__setitem__(key, val)
+            vcfrec.info.__setitem__("Callers", ",".join(list(set(callers))))
+            if output_ncallers:
+                vcfrec.info.__setitem__("NumCallers", len(set(callers)))
             vcfrec.info.__setitem__("CHR2", avgloc2.chrom)
             vcfrec.stop = avgloc2.pos
             svtype = getSVTYPE(avgloc1.chrom, avgloc2.chrom, extend1, extend2)
             vcfrec.info.__setitem__("SVTYPE", svtype)
             if avgloc1.chrom == avgloc2.chrom:
                 vcfrec.info.__setitem__("SVLEN", str(avgloc2.pos - avgloc1.pos))
+            for caller, rec in recordscalled:
+                if noFilter:
+                    for fil in rec.filter:
+                        if not fil in [".","PASS"]:
+                            vcfrec.filter.add("{}_{}".format(caller,fil))
+                for info in infomap[caller]:
+                    try:
+                        vcfrec.info.__setitem__("{}_{}".format(caller,info), rec.info[info])
+                    except KeyError:
+                        continue
+                    except:
+                        print(info,rec.info[info])
+                        raise
+                for samp in samplemap[caller].items():
+                    for form in formatmap[caller]:
+                        try:
+                            vcfrec.samples[samp[1]].__setitem__("{}_{}".format(caller,form),rec.samples[samp[0]][form])
+                        except KeyError:
+                            continue
+                        except:
+                            print(form,rec.samples[samp[0]][form])
+                            raise
             print(vcfrec, end="", file=outfile)
             if debug:
                 for caller, rec in recordscalled:
