@@ -185,7 +185,8 @@ def breakpointsFromRecord(record):
                 ct = '3to5'
 
         # if nothing else, treat as an indel
-        if not svtype and not resultBP and not resultLE and not resultSym:
+        if (not svtype or svtype == "BND") and not resultBP and not resultLE and not resultSym:
+
             reflen = len(ref)
             if pos2 is None:
                 pos2 = pos1 + reflen
