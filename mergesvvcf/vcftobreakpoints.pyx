@@ -155,8 +155,10 @@ def breakpointsFromRecord(record):
         # defaults
         if chr2 is None:
             chr2 = chr1
-        if pos2 is None and "<" in altstr:
+        if pos2 is None and "<" in altstr and ">" in altstr:
             pos2 = record.stop
+        elif pos2 is None and re.match(r'^[ATCG]+$', altstr.strip(".")):
+            pos2 = record.pos + len(altstr.strip("."))
 
         # look for symbolic SVTYPE information in the alt field (eg, <DEL>)
         resultSym = re.match(__symbolicRE__, altstr)
@@ -189,7 +191,7 @@ def breakpointsFromRecord(record):
 
             reflen = len(ref)
             if pos2 is None:
-                pos2 = pos1 + reflen
+                pos2 = pos1 + len(altstr.strip("."))
             if svlen is None:
                 svlen = len(altstr) - reflen
             if svtype is None:
