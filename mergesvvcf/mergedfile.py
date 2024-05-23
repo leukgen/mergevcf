@@ -270,8 +270,9 @@ def merge(
         "String",
         "Strand orientation of the adjacency in BEDPE format (DEL:+-, DUP:-+, INV:++/--)",
     )
-
-    outfile = open(outfile,'w')
+    # outfile should be a file handler. if it's a file name open it
+    if isinstance(outfile, str):
+        outfile = open(outfile,'w')
     print(outvcf.header, end="", file=outfile)
 
     for variant in sorted(calldict, key=operator.itemgetter(0)):
