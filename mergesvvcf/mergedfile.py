@@ -197,9 +197,12 @@ def merge(
             formats = []
             for hformat in vcf_reader.header.formats.itervalues():
                 num = None
-                if hformat.name == "GT" or hformat.number == "G":
-                    num = "G"
-                    continue  # Genotype is special cant do multiple
+                # if hformat.name == "GT" or hformat.number == "G":
+                #     num = "G"
+                #     continue  # Genotype is special cant do multiple
+                if hformat.name == "PL": num = "G"
+                if hformat.number == "G": num = "G"
+                if hformat.name == "GL": num = "3"
                 outvcf.header.formats.add(
                     "{}_{}".format(program, hformat.name),
                     num or hformat.number,
